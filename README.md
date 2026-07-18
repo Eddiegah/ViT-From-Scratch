@@ -1,70 +1,213 @@
-# ViT From Scratch
+<div align="center">
 
-A Vision Transformer (ViT) implemented entirely from scratch in PyTorch — patch embedding, positional encoding, and multi-head self-attention all built manually — trained on CIFAR-10 and benchmarked against a hand-built CNN baseline.
+# 🔬 ViT From Scratch
 
-The goal is genuine understanding of the architecture, not just a working model. Code clarity and mathematical correctness are prioritised over final accuracy.
+### Vision Transformer — Built from the Math Up
+
+[![Python](https://img.shields.io/badge/Python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.3.1-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![CIFAR-10](https://img.shields.io/badge/Dataset-CIFAR--10-00B4D8?style=for-the-badge&logo=databricks&logoColor=white)](https://www.cs.toronto.edu/~kriz/cifar.html)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-25%20Passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](tests/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Eddiegah/ViT-From-Scratch)
+
+<br/>
+
+**Multi-head self-attention, patch embedding, and positional encoding — all implemented manually, without `nn.MultiheadAttention` or pre-built transformer blocks.** Trained on CIFAR-10, benchmarked against a hand-built CNN baseline.
+
+*The goal is genuine understanding — not just a working model.*
+
+<br/>
+
+[🚀 Quick Start](#setup) · [🏗 Architecture](#architecture) · [📊 Results](#results) · [⚡ Colab (GPU)](#google-colab-gpu) · [🔍 Attention Viz](#attention-visualization)
+
+</div>
 
 ---
 
-## Table of Contents
+## ✨ What's Built Here
 
-1. [Compute Requirements](#compute-requirements)
-2. [Setup](#setup)
-3. [Project Structure](#project-structure)
-4. [How ViT Differs from CNNs](#how-vit-differs-from-cnns)
-5. [Default Configuration](#default-configuration)
-6. [Running the Project](#running-the-project)
-7. [Results](#results)
-8. [Troubleshooting](#troubleshooting)
-9. [Future Work](#future-work)
+This project implements every component of the Vision Transformer from scratch — each file maps directly to a piece of the original paper's math:
 
----
-
-## Compute Requirements
-
-**Read this before starting a training run.**
-
-Vision Transformers are data- and compute-hungry compared to CNNs because they have no built-in spatial priors — the model must learn that nearby pixels are related from data alone, via attention. CNNs assume this by construction (the convolution kernel looks at a local neighbourhood). This difference matters a lot at small scale.
-
-| Environment | Approx. time per epoch (per model) | Recommended? |
+| File | What it implements | Key insight |
 |---|---|---|
-| CPU (modern laptop) | 3–6 minutes | Feasible for a quick run |
-| GPU (free Colab T4) | ~20 seconds | **Recommended** |
-| GPU (local NVIDIA) | ~15–30 seconds | Ideal |
-
-This project targets **CIFAR-10** (50,000 training images, 32×32 pixels, 10 classes) with a **small ViT configuration** (~1.8 M parameters). This is deliberately not ImageNet scale — the goal is to understand the architecture at manageable compute cost.
-
-**Expected accuracy** (30 epochs, default config):
-- CNN baseline: ~82–87%
-- ViT from scratch: ~70–80%
-
-The ViT underperforming the CNN at this scale is **expected and well-documented** — not a bug. See [How ViT Differs from CNNs](#how-vit-differs-from-cnns) for the explanation.
+| `src/patch_embedding.py` | Image → patch sequence + [CLS] token | Strided Conv2d ≡ flatten + linear project |
+| `src/positional_encoding.py` | Learnable 1D positional embeddings | Attention is permutation-invariant without this |
+| `src/attention.py` | Scaled dot-product + multi-head attention | `Q·Kᵀ / √d_k` → softmax → weight `V` |
+| `src/transformer_block.py` | Pre-LN encoder: MHSA + MLP + residuals | Why pre-norm stabilises training |
+| `src/vit.py` | Full ViT model end-to-end | [CLS] token aggregates global context |
+| `src/cnn_baseline.py` | CNN baseline (~2M params) | Inductive bias vs. learned spatial structure |
+| `src/train.py` | AdamW + cosine LR + tqdm training loop | Identical budget for fair comparison |
+| `src/evaluate.py` | Metrics + auto-generated comparison report | Honest interpretation of results |
+| `src/visualize_attention.py` | [CLS] attention maps, all layers | *See what the model actually learned to look at* |
 
 ---
 
-## Setup
+## 🏗 Architecture
+
+### Vision Transformer (ViT)
+
+```
+Input Image (3×32×32)
+        │
+        ▼
+┌──────────────────────┐
+│   Patch Embedding    │  32×32 → 64 patches of 4×4
+│   + [CLS] Token      │  + 1 learnable class token
+└──────────────────────┘
+        │
+        ▼
+┌──────────────────────┐
+│  Positional Encoding │  Inject spatial location into tokens
+└──────────────────────┘
+        │
+        ▼  ×6 blocks
+┌──────────────────────┐
+│  LayerNorm           │
+│  ↓                   │
+│  Multi-Head          │  Q = XW_Q,  K = XW_K,  V = XW_V
+│  Self-Attention      │  Attn = softmax(QKᵀ/√d_k) · V
+│  ↓                   │
+│  Residual (+x)       │
+│                      │
+│  LayerNorm           │
+│  ↓                   │
+│  MLP (GELU)          │  Linear → GELU → Dropout → Linear
+│  ↓                   │
+│  Residual (+x)       │
+└──────────────────────┘
+        │
+        ▼
+  [CLS] Token Output
+        │
+        ▼
+┌──────────────────────┐
+│  LayerNorm → Linear  │  → 10 class logits
+└──────────────────────┘
+```
+
+**Default CIFAR-10 configuration** (~811K parameters):
+
+| Hyperparameter | Value |
+|---|---|
+| Image size | 32×32 |
+| Patch size | 4×4 → 64 patches |
+| Sequence length | 65 (64 patches + [CLS]) |
+| Embedding dim (D) | 128 |
+| Attention heads | 4 (head dim = 32) |
+| Transformer layers | 6 |
+| MLP hidden dim | 256 |
+
+### The Attention Formula (from code)
+
+```python
+# src/attention.py — every line maps to the math
+
+Q = self.W_q(x)                              # Q = X W_Q
+K = self.W_k(x)                              # K = X W_K
+V = self.W_v(x)                              # V = X W_V
+
+scores = torch.matmul(Q, K.transpose(-2,-1)) / self.scale   # QKᵀ / √d_k
+attn   = F.softmax(scores, dim=-1)           # softmax over keys
+out    = torch.matmul(attn, V)               # weighted sum of values
+out    = self.W_o(merge_heads(out))          # output projection
+```
+
+---
+
+## 🧠 Why ViT Needs More Data Than CNN
+
+This is the conceptual core of the project.
+
+### The CNN's built-in advantage
+
+```
+Conv kernel: looks at a 3×3 neighbourhood only
+             → local spatial structure assumed by architecture
+             → translation equivariant by construction
+```
+
+A CNN **assumes** nearby pixels are related. It doesn't have to learn this. That's a powerful prior for natural images — and it's why CNNs learn so effectively from small datasets.
+
+### The ViT's blank slate
+
+```python
+# Every patch can attend to every other patch equally at initialisation
+scores = Q @ K.T / sqrt(d_k)    # all pairs, all positions, equal footing
+attn   = softmax(scores)        # model must learn which pairs matter
+```
+
+Self-attention is **permutation-invariant** — shuffle all patches and the math still works. The ViT must discover from data that the top-left patch is spatially adjacent to the ones next to it. On 50,000 CIFAR-10 images, this is hard. With 300 million images (Google's JFT-300M), the story flips.
+
+| Scale | Who wins | Why |
+|---|---|---|
+| CIFAR-10 (50K images) | CNN | Inductive bias > learned structure |
+| ImageNet (1.2M images) | Roughly tied | ViT catches up |
+| JFT-300M (300M images) | ViT | Learned structure > baked-in bias |
+
+---
+
+## 📊 Results
+
+> Results are generated after a full training run via `python -m src.evaluate`.
+> See [`results/comparison_report.md`](results/comparison_report.md) for the full auto-generated report.
+
+| Metric | ViT (from scratch) | CNN Baseline |
+|---|---|---|
+| Test Accuracy | *run training* | *run training* |
+| Parameters | ~811K | ~2.0M |
+| Training Time | *see report* | *see report* |
+
+**Training curves** (generated by `src/train.py`):
+
+> `results/training_curves.png` — ViT vs CNN loss and accuracy over 30 epochs.
+
+**Attention visualizations** (generated by `src/visualize_attention.py`):
+
+> `results/attention_visualizations/` — what patches the [CLS] token attends to, per layer.
+
+---
+
+## 🔍 Attention Visualization
+
+One of the most interesting outputs of this project is being able to *see* what the model learned to focus on. After training, `src/visualize_attention.py` extracts the [CLS] token's attention weights and overlays them on the input image.
+
+```
+Original Image | Attention Heatmap | Overlay
+     🐦        |    🔥🔥..🔥.     |   combined
+```
+
+The [CLS] token has no fixed spatial location — it attends to the patches that are most informative for classification. By the final layer, it should be attending to the discriminative regions of the image.
+
+Run it after training:
+
+```cmd
+python -m src.visualize_attention --num_samples 8
+```
+
+---
+
+## ⚙️ Setup
 
 ### Prerequisites
 
-- Python 3.9–3.12 (Python 3.11 recommended on Windows)
-- Windows 10/11 (primary supported environment), macOS, or Linux
+- Python 3.9–3.12 (Python 3.11 recommended)
+- Windows 10/11, macOS, or Linux
 
-### 1. Check your Python version
+### 1. Check your Python
 
 ```cmd
 py -0
 ```
 
-You should see a `3.9`, `3.10`, `3.11`, or `3.12` entry. If not, download Python 3.11 from [python.org](https://www.python.org/downloads/).
+You need a `3.9`, `3.10`, `3.11`, or `3.12` entry. Get it at [python.org](https://www.python.org/downloads/).
 
-### 2. Create and activate a virtual environment
+### 2. Create a virtual environment
 
 ```cmd
 py -3.11 -m venv venv
 venv\Scripts\activate
 ```
-
-Your prompt should now start with `(venv)`.
 
 ### 3. Install dependencies
 
@@ -72,126 +215,25 @@ Your prompt should now start with `(venv)`.
 pip install -r requirements.txt
 ```
 
-### 4. Verify the installation
+### 4. Verify
 
 ```cmd
-python -c "import torch; import torchvision; import matplotlib; print('CUDA available:', torch.cuda.is_available()); print('All imports OK')"
-```
-
-You should see:
-```
-CUDA available: True   # (or False if no NVIDIA GPU — that's fine)
-All imports OK
-```
-
-If this fails with a **DLL load error**, see [Troubleshooting](#troubleshooting).
-
----
-
-## Project Structure
-
-```
-vit-from-scratch/
-├── src/
-│   ├── patch_embedding.py      # Image → patch sequence + [CLS] token
-│   ├── positional_encoding.py  # Learnable positional embeddings
-│   ├── attention.py            # Multi-head self-attention (from raw math)
-│   ├── transformer_block.py    # MHSA + MLP + LayerNorm + residuals
-│   ├── vit.py                  # Full ViT model
-│   ├── cnn_baseline.py         # Small CNN for comparison
-│   ├── train.py                # Training script (both models)
-│   ├── evaluate.py             # Test metrics + comparison report
-│   └── visualize_attention.py  # Attention map visualizations
-├── tests/
-│   └── test_attention.py       # Unit tests for attention mechanism
-├── results/
-│   ├── training_curves.png          # Generated after training
-│   ├── attention_visualizations/    # Generated after visualize_attention.py
-│   └── comparison_report.md         # Generated after evaluate.py
-├── notebooks/
-│   └── colab_version.ipynb     # GPU-accelerated Colab alternative
-├── requirements.txt
-├── .gitignore
-└── README.md
+python -c "import torch; import torchvision; print('CUDA:', torch.cuda.is_available()); print('All OK')"
 ```
 
 ---
 
-## How ViT Differs from CNNs
+## 🚀 Running
 
-This is the conceptual core of the project.
+All commands from the project root with venv activated.
 
-### The CNN's inductive bias
-
-A convolutional layer encodes two powerful assumptions about images:
-
-1. **Local spatial structure**: The kernel operates on a small neighbourhood (e.g. 3×3 pixels). Nearby pixels are processed together; distant pixels are not. This reflects a genuine property of natural images — edges, textures, and objects are all locally coherent.
-
-2. **Translation equivariance**: The same filter is applied at every spatial position. A "cat ear detector" trained on the top-left will generalise to the bottom-right without extra learning.
-
-These are very good priors for images. The CNN doesn't need to *discover* that local structure matters — it's baked into the architecture. This is why CNNs can learn effectively from relatively small datasets.
-
-### The ViT's lack of priors
-
-The core operation in a ViT is self-attention:
-
-```
-Attention(Q, K, V) = softmax( Q K^T / sqrt(d_k) ) V
-```
-
-This computes a weighted mixture of all values, where the weights come from comparing every query token against every key token. **Every patch attends to every other patch equally at initialisation.** There is no locality assumption.
-
-The only spatial information the ViT receives is through learned positional embeddings added to the patch sequence. The model must learn from data that patch 0 (top-left) is spatially close to patch 1 (top-second-from-left), and that this proximity is meaningful.
-
-With 50,000 CIFAR-10 training images, the ViT simply doesn't get enough examples to fully learn the spatial relationships that a CNN assumes from the start. This is why, at small scale, the CNN wins.
-
-### At large scale, the story flips
-
-The original ViT paper (Dosovitskiy et al., "An Image is Worth 16x16 Words", 2020) found that ViTs trained on ImageNet alone (~1.2 M images) underperformed CNNs. But when pre-trained on JFT-300M (300 million images), ViTs matched or exceeded the best CNNs.
-
-The intuition: given enough data, the ViT learns spatial relationships so thoroughly that the CNN's inductive bias becomes a constraint rather than a head start. The ViT's more general attention mechanism can then find patterns a CNN would miss.
-
----
-
-## Default Configuration
-
-| Hyperparameter | Value | Notes |
-|---|---|---|
-| Image size | 32×32 | CIFAR-10 native resolution |
-| Patch size | 4×4 | → 64 patches per image |
-| Sequence length | 65 | 64 patches + 1 [CLS] token |
-| Embedding dim (D) | 128 | |
-| Attention heads | 4 | Head dim = 32 |
-| Transformer layers | 6 | |
-| MLP hidden dim | 256 | 2× embed_dim |
-| Attention dropout | 0.1 | |
-| MLP dropout | 0.1 | |
-| Parameters | ~1.8 M | |
-
-Training config (defaults):
-
-| Setting | Value |
-|---|---|
-| Epochs | 30 |
-| Batch size | 64 |
-| Optimizer | AdamW (weight_decay=1e-4) |
-| Learning rate | 3e-4 |
-| LR schedule | Cosine annealing |
-| Augmentation | RandomHorizontalFlip + RandomCrop(32, padding=4) |
-
----
-
-## Running the Project
-
-All commands assume you're in the project root with the virtual environment activated.
-
-### Run unit tests first (recommended)
+### Run unit tests (do this first)
 
 ```cmd
 python -m pytest tests/ -v
 ```
 
-All tests should pass before training. This catches subtle bugs in the attention implementation.
+All 25 tests should pass before training. They verify attention weights sum to 1, shapes are correct, gradients flow, and more.
 
 ### Train both models
 
@@ -199,100 +241,184 @@ All tests should pass before training. This catches subtle bugs in the attention
 python -m src.train
 ```
 
-With custom settings:
+CIFAR-10 (~170 MB) downloads automatically on first run.
+
+**Optional flags:**
 
 ```cmd
 python -m src.train --epochs 30 --batch_size 64 --lr 3e-4
 ```
 
-CIFAR-10 (~170 MB) downloads automatically to `data/` on first run.
+**Outputs:**
+- `results/checkpoints/vit.pth` — trained ViT
+- `results/checkpoints/cnn.pth` — trained CNN
+- `results/training_curves.png`
+- `results/vit_history.json`, `results/cnn_history.json`
 
-Outputs:
-- `results/checkpoints/vit.pth` — trained ViT weights
-- `results/checkpoints/cnn.pth` — trained CNN weights
-- `results/training_curves.png` — loss/accuracy comparison plots
-- `results/vit_history.json`, `results/cnn_history.json` — raw training logs
-
-### Generate attention visualizations
-
-```cmd
-python -m src.visualize_attention --num_samples 8
-```
-
-Outputs to `results/attention_visualizations/` — one image per sample showing original image, attention heatmap, and overlay.
-
-### Generate comparison report
+### Generate the comparison report
 
 ```cmd
 python -m src.evaluate
 ```
 
-Outputs `results/comparison_report.md` with final test accuracy, parameter counts, training times, and a plain-language explanation of the results.
+Writes `results/comparison_report.md` with accuracy, parameter counts, training times, and a plain-language explanation.
 
-### Use Colab for GPU training
+### Visualize attention
 
-Open `notebooks/colab_version.ipynb` in Google Colab. Set the runtime to **T4 GPU** (`Runtime → Change runtime type`), then run all cells. Training takes ~10–15 minutes instead of hours.
+```cmd
+python -m src.visualize_attention --num_samples 8
+```
 
----
-
-## Results
-
-*This section is populated after running `src/evaluate.py`.*
-
-See `results/comparison_report.md` for the full generated report, including honest interpretation of the results and why they came out the way they did.
+Saves attention overlay images to `results/attention_visualizations/`.
 
 ---
 
-## Troubleshooting
+## ⚡ Google Colab (GPU)
 
-### DLL load error on Windows (torch import fails)
+CPU training takes **3–5 hours**. The Colab notebook does it in **~15 minutes** on a free T4 GPU.
 
-Install the Microsoft Visual C++ 2015–2022 Redistributable:
-- [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) (64-bit — required)
-- [vc_redist.x86.exe](https://aka.ms/vs/17/release/vc_redist.x86.exe) (32-bit — also install this)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](notebooks/colab_version.ipynb)
 
-Restart your machine and retry.
-
-### `ModuleNotFoundError: No module named 'src'`
-
-Run commands from the project root directory (the folder containing `src/`), not from inside `src/`. Always use `python -m src.train` (module form), not `python src/train.py`.
-
-### Training is extremely slow
-
-This is expected on CPU. Options:
-- Use the Colab notebook (`notebooks/colab_version.ipynb`) for free GPU access.
-- Reduce epochs: `--epochs 10` for a quick sanity check.
-- Reduce batch size if memory is tight: `--batch_size 32`.
-
-### CIFAR-10 download fails
-
-If the automatic download fails, download manually:
-1. Go to https://www.cs.toronto.edu/~kriz/cifar.html
-2. Download `CIFAR-10 python version`
-3. Extract to `data/cifar-10-batches-py/`
-
-### `num_workers` warning on Windows
-
-Windows sometimes shows warnings about DataLoader workers. If you see errors, add `--num_workers 0` to the train command.
-
-### OneDrive path issues
-
-If your project is inside a OneDrive-synced folder, move it to a non-synced path (e.g. `C:\Projects\vit-from-scratch`) before running. OneDrive file locking can interfere with PyTorch's checkpoint saving and dataset caching.
+1. Open `notebooks/colab_version.ipynb` in Google Colab
+2. Set runtime: `Runtime → Change runtime type → T4 GPU`
+3. Run all cells — uploads project, trains, downloads results
 
 ---
 
-## Future Work
+## 💻 Compute Requirements
 
-- **Scale up**: Larger patch size (16×16), deeper encoder (12 layers), larger embedding dim (768) — approaching ViT-Base, but requires significantly more compute and data.
-- **Data augmentation**: CutMix, MixUp, RandAugment — these disproportionately help ViTs and can close a significant portion of the gap with CNNs at small scale.
-- **Transfer learning**: Pre-train on a larger dataset (e.g. ImageNet-1K), then fine-tune on CIFAR-10. This is the standard approach for getting strong ViT performance without massive compute.
-- **Sinusoidal positional encoding**: Compare learnable vs. fixed sinusoidal embeddings.
-- **DeiT-style distillation**: Train the ViT with a CNN teacher (knowledge distillation), which is one of the techniques that makes ViTs competitive at smaller scales.
+| Environment | Time per epoch (per model) | Recommended? |
+|---|---|---|
+| CPU (modern laptop) | 5–10 min | Feasible, slow |
+| GPU (free Colab T4) | ~20 sec | ✅ Recommended |
+| GPU (local NVIDIA) | ~15–30 sec | ✅ Best |
+
+This project targets CIFAR-10 scale only. Scaling to ImageNet would require significantly more compute and is a documented future step.
 
 ---
 
-## References
+## 🧪 Unit Tests
 
-- Dosovitskiy et al., "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale" (2020) — [arXiv:2010.11929](https://arxiv.org/abs/2010.11929)
-- Vaswani et al., "Attention Is All You Need" (2017) — [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
-- Touvron et al., "Training data-efficient image transformers & distillation through attention" (DeiT, 2021) — [arXiv:2012.12877](https://arxiv.org/abs/2012.12877)
+25 tests in `tests/test_attention.py` covering:
+
+```
+✅ Attention output shapes
+✅ Attention weights sum to 1 (softmax correctness)
+✅ No negative attention weights
+✅ No NaN values in forward pass
+✅ Scale factor = 1/√d_k
+✅ Gradient flow through full model
+✅ Batch independence (no cross-contamination)
+✅ Patch embedding output shapes
+✅ CLS token is prepended
+✅ Invalid patch sizes raise AssertionError
+✅ Positional encoding adds non-zero values
+✅ Transformer block residual connection
+✅ Full ViT output shape (B, num_classes)
+✅ Attention maps returned per block
+✅ Parameter count in expected range
+✅ Different images → different outputs
+```
+
+---
+
+## 🔧 Troubleshooting
+
+<details>
+<summary><b>DLL load error on Windows (torch import fails)</b></summary>
+
+Install Microsoft Visual C++ 2015–2022 Redistributable:
+- [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) — 64-bit (required)
+- [vc_redist.x86.exe](https://aka.ms/vs/17/release/vc_redist.x86.exe) — 32-bit (also install)
+
+Restart and retry.
+</details>
+
+<details>
+<summary><b>ModuleNotFoundError: No module named 'src'</b></summary>
+
+Run from the project root using module form:
+```cmd
+python -m src.train        ✅
+python src/train.py        ❌
+```
+</details>
+
+<details>
+<summary><b>Training is very slow</b></summary>
+
+Use the Colab notebook for free GPU training (~15 min vs ~5 hrs). Or reduce epochs for a quick sanity check:
+```cmd
+python -m src.train --epochs 5
+```
+</details>
+
+<details>
+<summary><b>num_workers warning on Windows</b></summary>
+
+Add `--num_workers 0` to the training command:
+```cmd
+python -m src.train --num_workers 0
+```
+</details>
+
+<details>
+<summary><b>OneDrive path issues</b></summary>
+
+Move the project to a non-OneDrive path (e.g. `C:\Projects\ViT-From-Scratch`). OneDrive file locking can interfere with checkpoint saving.
+</details>
+
+---
+
+## 🗺 Project Structure
+
+```
+vit-from-scratch/
+├── src/
+│   ├── patch_embedding.py      # Image → patch sequence + [CLS] token
+│   ├── positional_encoding.py  # Learnable 1D positional embeddings
+│   ├── attention.py            # Multi-head self-attention (raw math)
+│   ├── transformer_block.py    # Pre-LN encoder block
+│   ├── vit.py                  # Full ViT model
+│   ├── cnn_baseline.py         # CNN comparison baseline
+│   ├── train.py                # Training loop (both models)
+│   ├── evaluate.py             # Metrics + comparison report
+│   └── visualize_attention.py  # Attention map visualizations
+├── tests/
+│   └── test_attention.py       # 25 unit tests
+├── results/
+│   ├── training_curves.png          # Generated after training
+│   ├── attention_visualizations/    # Generated after visualization
+│   └── comparison_report.md         # Generated after evaluation
+├── notebooks/
+│   └── colab_version.ipynb     # GPU Colab alternative
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 🔮 Future Work
+
+- **Better augmentation** (CutMix, MixUp, RandAugment) — disproportionately helps ViTs at small scale
+- **DeiT-style distillation** — train ViT with CNN teacher, closes the gap on small datasets
+- **Sinusoidal vs learnable positional encoding** — ablation study
+- **ViT-Base config** (12 layers, 768 dim) — requires ImageNet-scale compute
+- **Transfer learning** — pre-train on ImageNet-1K, fine-tune on CIFAR-10
+
+---
+
+## 📚 References
+
+- Dosovitskiy et al., **"An Image is Worth 16x16 Words"** (2020) — [arXiv:2010.11929](https://arxiv.org/abs/2010.11929)
+- Vaswani et al., **"Attention Is All You Need"** (2017) — [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+- Touvron et al., **"Training data-efficient image transformers"** (DeiT, 2021) — [arXiv:2012.12877](https://arxiv.org/abs/2012.12877)
+
+---
+
+<div align="center">
+
+Built with 🧠 and PyTorch — no shortcuts, all math.
+
+</div>
