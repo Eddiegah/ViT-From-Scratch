@@ -1,0 +1,47 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# CIFAR-10 dataset cache (downloaded automatically by torchvision)
+data/
+
+# Model checkpoints (large binary files — regenerate by running train.py)
+results/checkpoints/
+*.pth
+*.pt
+*.ckpt
+
+# Generated training outputs (regenerate by running train.py / evaluate.py)
+results/training_curves.png
+results/vit_history.json
+results/cnn_history.json
+results/comparison_report.md
+results/attention_visualizations/*.png
+
+# Keep the directory structure
+!results/.gitkeep
+!results/attention_visualizations/.gitkeep
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
